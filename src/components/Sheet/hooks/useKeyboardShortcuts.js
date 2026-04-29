@@ -85,7 +85,7 @@ export default function useKeyboardShortcuts({ rows, cols }) {
 
         navigator.clipboard?.writeText(text).catch(() => {});
 
-        // 🔥 IMPORTANT: snapshot clipboard ngay lúc này
+        // snapshot clipboard
         useSheetSelectionStore.getState().setClipboard({
           range: [sr, sc, er, ec],
           mode: key === "x" ? "cut" : "copy",
@@ -98,7 +98,7 @@ export default function useKeyboardShortcuts({ rows, cols }) {
       /* ================= PASTE ================= */
       if (ctrl && key === "v") {
         const selStore = useSheetSelectionStore.getState();
-        const clipboard = selStore.clipboard; // 🔥 ALWAYS FRESH
+        const clipboard = selStore.clipboard;
 
         const start = selStore.activeCell || selStore.selectionStart;
         if (!start) return;
@@ -138,7 +138,7 @@ export default function useKeyboardShortcuts({ rows, cols }) {
               }
             }
 
-            return { cells: { ...next } }; // 🔥 FORCE NEW REF
+            return { cells: { ...next } };
           });
 
           // ================= STYLE DELETE =================

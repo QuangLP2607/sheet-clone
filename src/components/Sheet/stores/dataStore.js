@@ -1,30 +1,70 @@
 import { create } from "zustand";
 import { useSheetHistoryStore } from "./historyStore";
 
+const ROW_CHUNK = 100;
+const COL_CHUNK = 20;
+
 export const useDataStore = create((set, get) => ({
-  rows: 50,
-  cols: 20,
+  rows: ROW_CHUNK,
+  cols: COL_CHUNK,
 
   cells: {},
+
+  /* ================= expand ================= */
+
+  ensureSize: (visibleRow, visibleCol) => {
+    const { rows, cols } = get();
+
+    let nextRows = rows;
+    let nextCols = cols;
+
+    if (visibleRow >= rows - 10) {
+      nextRows += ROW_CHUNK;
+    }
+
+    if (visibleCol >= cols - 5) {
+      nextCols += COL_CHUNK;
+    }
+
+    if (nextRows !== rows || nextCols !== cols) {
+      set({
+        rows: nextRows,
+        cols: nextCols,
+      });
+    }
+  },
 
   /* ================= data ================= */
 
   setData: (data) => {
     useSheetHistoryStore.getState().pushSnapshot();
+
     set({
-      rows: data.rows || 0,
-      cols: data.cols || 0,
+      rows: data.rows || ROW_CHUNK,
+      cols: data.cols || COL_CHUNK,
       cells: data.cells || {},
     });
   },
 
   setCellValue: (row, col, value) => {
-    const key = row + ":" + col;
+    const key = `${row}:${col}`;
     const current = get().cells[key] || "";
+
     if (current === value) return;
 
+    const { rows, cols } = get();
+
+    let nextRows = rows;
+    let nextCols = cols;
+
+    if (row >= rows) nextRows = row + ROW_CHUNK;
+    if (col >= cols) nextCols = col + COL_CHUNK;
+
     useSheetHistoryStore.getState().pushSnapshot();
+
     set((state) => ({
+      rows: nextRows,
+      cols: nextCols,
       cells: {
         ...state.cells,
         [key]: value,
@@ -33,7 +73,7 @@ export const useDataStore = create((set, get) => ({
   },
 
   getCellValue: (row, col) => {
-    return get().cells[row + ":" + col];
+    return get().cells[`${row}:${col}`];
   },
 
   getCellByAddress: (address) => {
@@ -53,12 +93,14 @@ export const useDataStore = create((set, get) => ({
 
     col--;
 
-    return get().cells[row + ":" + col];
+    return get().cells[`${row}:${col}`];
   },
 
   clear: () => {
     if (Object.keys(get().cells).length === 0) return;
+
     useSheetHistoryStore.getState().pushSnapshot();
+
     set({
       cells: {},
     });

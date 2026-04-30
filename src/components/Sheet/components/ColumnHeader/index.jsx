@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { useSizeStore } from "../../stores/sizeStore";
-import { useSheetSelectionStore } from "../../stores/selectionStore";
+import { useSelectionStore } from "../../stores/selectionStore";
 import { useDataStore } from "../../stores/dataStore";
+import { useShallow } from "zustand/react/shallow";
 
 import classNames from "classnames/bind";
 import styles from "./column-header.module.scss";
@@ -10,6 +11,8 @@ const cx = classNames.bind(styles);
 
 const DEFAULT_WIDTH = 120;
 const OVERSCAN_COLS = 2;
+
+/* ================= COMPONENT ================= */
 
 export default function ColumnHeader({
   cols,
@@ -24,16 +27,19 @@ export default function ColumnHeader({
 
   const resizeColumn = useSizeStore((s) => s.resizeColumn);
 
-  // ✅ selector riêng để tránh re-render toàn bộ
-  const activeCell = useSheetSelectionStore((s) => s.activeCell);
-  const selectedRange = useSheetSelectionStore((s) => s.selectedRange);
+  const { activeCell, selectedRange } = useSelectionStore(
+    useShallow((s) => ({
+      activeCell: s.activeCell,
+      selectedRange: s.selectedRange,
+    })),
+  );
 
   /* ================= resize ================= */
 
   const startResize = useCallback(
     (e, index) => {
       e.preventDefault();
-      e.stopPropagation(); // 🔥 tránh trigger selection
+      e.stopPropagation();
 
       const startX = e.clientX;
       const startWidth = colSizes[index] ?? DEFAULT_WIDTH;
@@ -45,7 +51,7 @@ export default function ColumnHeader({
 
         frame = requestAnimationFrame(() => {
           const delta = (e.clientX - startX) / zoom;
-          const newWidth = Math.max(40, startWidth + delta); // min width
+          const newWidth = Math.max(40, startWidth + delta);
 
           resizeColumn(index, newWidth);
           gridRef.current?.resetAfterColumnIndex(index);
@@ -64,6 +70,18 @@ export default function ColumnHeader({
     [colSizes, zoom, resizeColumn, gridRef],
   );
 
+  /* ================= select column ================= */
+
+  const handleSelectColumn = useCallback((colIndex) => {
+    const selection = useSelectionStore.getState();
+    const rows = useDataStore.getState().rows;
+    const lastRow = Math.max(0, rows - 1);
+
+    selection.startSelection(0, colIndex);
+    selection.updateSelection(lastRow, colIndex);
+    selection.stopSelection();
+  }, []);
+
   /* ================= virtual header ================= */
 
   let acc = 0;
@@ -78,6 +96,7 @@ export default function ColumnHeader({
   }
 
   const offsetX = acc - scrollLeft;
+
   let visibleWidth = 0;
   let end = start;
 
@@ -101,24 +120,12 @@ export default function ColumnHeader({
         const i = start + idx;
         const baseWidth = colSizes[i] || DEFAULT_WIDTH;
 
-        /* ================= selection logic ================= */
+        /* ---------- selection ---------- */
 
-        const isActiveCol = activeCell && activeCell[1] === i;
+        const isActiveCol = activeCell?.[1] === i;
 
         const isSelectedCol =
           selectedRange && i >= selectedRange[1] && i <= selectedRange[3];
-
-        /* ================= handlers ================= */
-
-        const handleSelectColumn = () => {
-          const store = useSheetSelectionStore.getState();
-          const rows = useDataStore.getState().rows;
-          const lastRow = Math.max(0, rows - 1);
-
-          store.startSelection(0, i);
-          store.updateSelection(lastRow, i);
-          store.stopSelection();
-        };
 
         return (
           <div
@@ -131,11 +138,11 @@ export default function ColumnHeader({
               width: baseWidth * zoom,
               fontSize: 12 * zoom,
             }}
-            onMouseDown={handleSelectColumn}
+            onMouseDown={() => handleSelectColumn(i)}
           >
             <span>{labelFn(i)}</span>
 
-            {/* RESIZE HANDLE */}
+            {/* ===== RESIZE HANDLE ===== */}
             <div
               className={cx("resize")}
               onMouseDown={(e) => startResize(e, i)}

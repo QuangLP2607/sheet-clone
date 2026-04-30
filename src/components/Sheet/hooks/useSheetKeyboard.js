@@ -1,20 +1,27 @@
 import { useEffect, useCallback } from "react";
-import { useSheetSelectionStore } from "../stores/selectionStore";
+
+import { useSelectionStore } from "../stores/selectionStore";
+import { useEditingStore } from "../stores/editingStore";
 import { useDataStore } from "../stores/dataStore";
 
+/* ================= SHEET KEYBOARD ================= */
+
 export default function useSheetKeyboard({ rows, cols }) {
-  const {
-    activeCell,
-    startSelection,
-    updateSelection,
-    startEditing,
-    commitEditing,
-    cancelEditing,
-    editingCell,
-  } = useSheetSelectionStore();
+  /* ---------- state ---------- */
+  const activeCell = useSelectionStore((s) => s.activeCell);
+  const startSelection = useSelectionStore((s) => s.startSelection);
+  const updateSelection = useSelectionStore((s) => s.updateSelection);
+
+  const editingCell = useEditingStore((s) => s.editingCell);
+  const startEditing = useEditingStore((s) => s.startEditing);
+  const commitEditing = useEditingStore((s) => s.commitEditing);
+  const cancelEditing = useEditingStore((s) => s.cancelEditing);
+
+  const clearRange = useDataStore((s) => s.clearRange);
 
   const [row = 0, col = 0] = activeCell || [];
 
+  /* ---------- helpers ---------- */
   const clamp = useCallback(
     (r, c) => [
       Math.max(0, Math.min(rows - 1, r)),
@@ -26,34 +33,35 @@ export default function useSheetKeyboard({ rows, cols }) {
   const move = useCallback(
     (dr, dc, extend = false) => {
       const [nr, nc] = clamp(row + dr, col + dc);
-
-      if (extend) {
-        updateSelection(nr, nc);
-      } else {
-        startSelection(nr, nc);
-      }
+      extend ? updateSelection(nr, nc) : startSelection(nr, nc);
     },
     [row, col, clamp, startSelection, updateSelection],
   );
 
+  /* ---------- handler ---------- */
   const handleKeyDown = useCallback(
     (e) => {
       const key = e.key;
 
-      /* ================= EDIT MODE ================= */
+      /* ===== EDIT MODE ===== */
       if (editingCell) {
         if (key === "Enter") {
+          e.preventDefault();
           commitEditing();
           move(1, 0);
-        } else if (key === "Escape") {
+        }
+
+        if (key === "Escape") {
+          e.preventDefault();
           cancelEditing();
         }
+
         return;
       }
 
-      /* ================= DELETE ================= */
+      /* ===== DELETE ===== */
       if (key === "Backspace" || key === "Delete") {
-        const { selectedRange, activeCell } = useSheetSelectionStore.getState();
+        const { selectedRange, activeCell } = useSelectionStore.getState();
 
         const range =
           selectedRange || (activeCell ? [...activeCell, ...activeCell] : null);
@@ -62,49 +70,56 @@ export default function useSheetKeyboard({ rows, cols }) {
 
         let [r1, c1, r2, c2] = range;
 
-        // normalize range
         if (r1 > r2) [r1, r2] = [r2, r1];
         if (c1 > c2) [c1, c2] = [c2, c1];
 
-        useDataStore.getState().clearRange(r1, c1, r2, c2);
+        clearRange(r1, c1, r2, c2);
 
         e.preventDefault();
         return;
       }
 
-      /* ================= ENTER EDIT ================= */
+      /* ===== ENTER EDIT ===== */
       if (key === "Enter") {
-        startEditing(row, col);
         e.preventDefault();
+        startEditing(row, col);
         return;
       }
 
-      /* ================= ARROWS ================= */
-      if (key === "ArrowUp") {
-        move(-1, 0, e.shiftKey);
+      /* ===== ARROWS ===== */
+      if (key.startsWith("Arrow")) {
         e.preventDefault();
-      }
-      if (key === "ArrowDown") {
-        move(1, 0, e.shiftKey);
-        e.preventDefault();
-      }
-      if (key === "ArrowLeft") {
-        move(0, -1, e.shiftKey);
-        e.preventDefault();
-      }
-      if (key === "ArrowRight") {
-        move(0, 1, e.shiftKey);
-        e.preventDefault();
+
+        const map = {
+          ArrowUp: [-1, 0],
+          ArrowDown: [1, 0],
+          ArrowLeft: [0, -1],
+          ArrowRight: [0, 1],
+        };
+
+        const [dr, dc] = map[key];
+        move(dr, dc, e.shiftKey);
+        return;
       }
 
-      /* ================= TYPING → AUTO EDIT ================= */
+      /* ===== TYPING ===== */
       if (key.length === 1 && !e.ctrlKey && !e.metaKey) {
         startEditing(row, col);
       }
     },
-    [editingCell, row, col, move, startEditing, commitEditing, cancelEditing],
+    [
+      editingCell,
+      row,
+      col,
+      move,
+      startEditing,
+      commitEditing,
+      cancelEditing,
+      clearRange,
+    ],
   );
 
+  /* ---------- bind ---------- */
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);

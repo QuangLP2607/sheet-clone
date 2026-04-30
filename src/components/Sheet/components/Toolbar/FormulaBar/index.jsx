@@ -2,11 +2,14 @@ import { useNavigate } from "react-router-dom";
 import classNames from "classnames/bind";
 import styles from "./formula-bar.module.scss";
 
-import { useSheetSelectionStore } from "../../../stores/selectionStore";
+import { useSelectionStore } from "../../../stores/selectionStore";
+import { useEditingStore } from "../../../stores/editingStore";
 import { useDataStore } from "../../../stores/dataStore";
 import { useShallow } from "zustand/react/shallow";
 
 const cx = classNames.bind(styles);
+
+/* ================= UTILS ================= */
 
 function getColumnLabel(col) {
   let label = "";
@@ -19,19 +22,23 @@ function getColumnLabel(col) {
   return label;
 }
 
+/* ================= COMPONENT ================= */
+
 export default function FormulaBar() {
   const navigate = useNavigate();
 
+  /* ---------- selection ---------- */
+  const activeCell = useSelectionStore((s) => s.activeCell);
+
+  /* ---------- editing ---------- */
   const {
-    activeCell,
     editingCell,
     editingValue,
     setEditingValue,
     startEditing,
     commitEditing,
-  } = useSheetSelectionStore(
+  } = useEditingStore(
     useShallow((s) => ({
-      activeCell: s.activeCell,
       editingCell: s.editingCell,
       editingValue: s.editingValue,
       setEditingValue: s.setEditingValue,
@@ -40,7 +47,10 @@ export default function FormulaBar() {
     })),
   );
 
+  /* ---------- data ---------- */
   const cells = useDataStore((s) => s.cells);
+
+  /* ================= VALUE ================= */
 
   let displayValue = "";
 
@@ -51,6 +61,27 @@ export default function FormulaBar() {
     displayValue = cells[key] || "";
   }
 
+  /* ================= HANDLERS ================= */
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+
+    if (!editingCell && activeCell) {
+      startEditing(activeCell[0], activeCell[1]);
+    }
+
+    setEditingValue(value);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      commitEditing();
+    }
+  };
+
+  /* ================= RENDER ================= */
+
   return (
     <div className={cx("toolbar")}>
       <button className={cx("toolbar__backBtn")} onClick={() => navigate(-1)}>
@@ -58,27 +89,18 @@ export default function FormulaBar() {
       </button>
 
       <div className={cx("toolbar__info")}>
+        {/* ===== ADDRESS ===== */}
         <span className={cx("toolbar__info-address")}>
           {activeCell && `${getColumnLabel(activeCell[1])}${activeCell[0] + 1}`}
         </span>
 
+        {/* ===== INPUT ===== */}
         <textarea
           className={cx("toolbar__info-value")}
           value={displayValue}
           placeholder="Enter value..."
-          onChange={(e) => {
-            if (!editingCell && activeCell) {
-              startEditing(activeCell[0], activeCell[1]);
-            }
-
-            setEditingValue(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              commitEditing();
-            }
-          }}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
         />
       </div>
     </div>

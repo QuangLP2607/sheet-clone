@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo } from "react";
+import React from "react";
 import { VariableSizeGrid as Grid } from "react-window";
 import AutoSizer from "react-virtualized-auto-sizer";
 
@@ -6,7 +7,8 @@ import AutoSizer from "react-virtualized-auto-sizer";
 import { useDataStore } from "./stores/dataStore";
 import { useSizeStore } from "./stores/sizeStore";
 import { useViewportStore } from "./stores/viewportStore";
-import { useSheetSelectionStore } from "./stores/selectionStore";
+import { useSelectionStore } from "./stores/selectionStore";
+import { useEditingStore } from "./stores/editingStore";
 
 // hooks
 import useSheetZoom from "./hooks/useSheetZoom";
@@ -50,33 +52,40 @@ const getColumnLabel = (i) => {
 };
 
 /* ================= CELL ================= */
-const CellRenderer = ({ columnIndex, rowIndex, style }) => {
+const CellRenderer = React.memo(({ columnIndex, rowIndex, style }) => {
   return <Cell row={rowIndex} col={columnIndex} style={style} />;
-};
+});
 
+/* ================= SHEET ================= */
 export default function Sheet({ className }) {
+  /* ---------- data ---------- */
   const rows = useDataStore((s) => s.rows);
   const cols = useDataStore((s) => s.cols);
   const ensureSize = useDataStore((s) => s.ensureSize);
 
+  /* ---------- size ---------- */
   const colSizes = useSizeStore((s) => s.colSizes);
   const rowSizes = useSizeStore((s) => s.rowSizes);
   const getColumnWidth = useSizeStore((s) => s.getColumnWidth);
   const getRowHeight = useSizeStore((s) => s.getRowHeight);
 
+  /* ---------- viewport ---------- */
   const setScroll = useViewportStore((s) => s.setScroll);
   const scrollLeft = useViewportStore((s) => s.scrollLeft);
   const scrollTop = useViewportStore((s) => s.scrollTop);
   const zoom = useViewportStore((s) => s.zoom);
 
+  /* ---------- refs ---------- */
   const gridRef = useRef(null);
   const wrapperRef = useRef(null);
   const dataRef = useRef(null);
 
+  /* ---------- hooks ---------- */
   useSheetZoom(wrapperRef, gridRef);
   useKeyboardShortcuts({ rows, cols });
   useSheetKeyboard({ rows, cols });
 
+  /* ---------- reset grid on zoom ---------- */
   useEffect(() => {
     gridRef.current?.resetAfterIndices({
       columnIndex: 0,
@@ -85,6 +94,7 @@ export default function Sheet({ className }) {
     });
   }, [zoom]);
 
+  /* ---------- scale ---------- */
   const scaledRowHeaderWidth = useMemo(() => ROW_HEADER_WIDTH * zoom, [zoom]);
 
   const scaledColumnHeaderHeight = useMemo(
@@ -92,6 +102,7 @@ export default function Sheet({ className }) {
     [zoom],
   );
 
+  /* ---------- size funcs ---------- */
   const columnWidth = useCallback(
     (i) => getColumnWidth(i) * zoom,
     [getColumnWidth, zoom],
@@ -102,6 +113,7 @@ export default function Sheet({ className }) {
     [getRowHeight, zoom],
   );
 
+  /* ---------- scroll ---------- */
   const handleScroll = useCallback(
     ({ scrollLeft, scrollTop }) => {
       setScroll(scrollLeft, scrollTop);
@@ -109,7 +121,10 @@ export default function Sheet({ className }) {
     [setScroll],
   );
 
+  /* ---------- labels ---------- */
   const rowLabel = useCallback((i) => i + 1, []);
+
+  /* ================= MOUSE ================= */
 
   const handleMouseDown = useCallback((e) => {
     const cellEl = e.target.closest("[data-row]");
@@ -118,46 +133,53 @@ export default function Sheet({ className }) {
     const row = Number(cellEl.dataset.row);
     const col = Number(cellEl.dataset.col);
 
-    const s = useSheetSelectionStore.getState();
+    const selection = useSelectionStore.getState();
+    const editing = useEditingStore.getState();
 
-    if (s.editingCell) s.commitEditing();
+    if (editing.editingCell) {
+      editing.commitEditing();
+    }
 
-    s.startSelection(row, col);
+    selection.startSelection(row, col);
   }, []);
 
   const handleMouseOver = useCallback((e) => {
     const cellEl = e.target.closest("[data-row]");
     if (!cellEl) return;
 
-    const s = useSheetSelectionStore.getState();
+    const selection = useSelectionStore.getState();
 
-    if (!s.isSelecting) return;
+    if (!selection.isSelecting) return;
 
-    s.updateSelection(Number(cellEl.dataset.row), Number(cellEl.dataset.col));
+    selection.updateSelection(
+      Number(cellEl.dataset.row),
+      Number(cellEl.dataset.col),
+    );
   }, []);
 
   const handleMouseUp = useCallback(() => {
-    useSheetSelectionStore.getState().stopSelection();
-  }, []);
-
-  useEffect(() => {
-    const stop = () => useSheetSelectionStore.getState().stopSelection();
-
-    window.addEventListener("mouseup", stop);
-
-    return () => window.removeEventListener("mouseup", stop);
+    useSelectionStore.getState().stopSelection();
   }, []);
 
   const handleDoubleClick = useCallback((e) => {
     const cellEl = e.target.closest("[data-row]");
     if (!cellEl) return;
 
-    useSheetSelectionStore
-      .getState()
-      .startEditing(Number(cellEl.dataset.row), Number(cellEl.dataset.col));
+    const row = Number(cellEl.dataset.row);
+    const col = Number(cellEl.dataset.col);
+
+    useEditingStore.getState().startEditing(row, col);
   }, []);
 
-  const itemData = useMemo(() => ({}), []);
+  /* ---------- global mouse up ---------- */
+  useEffect(() => {
+    const stop = () => useSelectionStore.getState().stopSelection();
+
+    window.addEventListener("mouseup", stop);
+    return () => window.removeEventListener("mouseup", stop);
+  }, []);
+
+  /* ================= RENDER ================= */
 
   return (
     <div className={cx("sheet", className)}>
@@ -171,6 +193,7 @@ export default function Sheet({ className }) {
 
             return (
               <>
+                {/* ===== DATA GRID ===== */}
                 <div
                   ref={dataRef}
                   className={cx("data")}
@@ -199,7 +222,6 @@ export default function Sheet({ className }) {
                     }) => {
                       ensureSize(visibleRowStopIndex, visibleColumnStopIndex);
                     }}
-                    itemData={itemData}
                     overscanRowCount={10}
                     overscanColumnCount={5}
                   >
@@ -209,6 +231,7 @@ export default function Sheet({ className }) {
                   <CellEditorOverlay zoom={zoom} dataRef={dataRef} />
                 </div>
 
+                {/* ===== CORNER ===== */}
                 <Corner
                   width={scaledRowHeaderWidth}
                   height={scaledColumnHeaderHeight}
@@ -216,6 +239,7 @@ export default function Sheet({ className }) {
                   cols={cols}
                 />
 
+                {/* ===== COLUMN HEADER ===== */}
                 <div
                   className={cx("columnHeader")}
                   style={{
@@ -235,6 +259,7 @@ export default function Sheet({ className }) {
                   />
                 </div>
 
+                {/* ===== ROW HEADER ===== */}
                 <div
                   className={cx("rowHeader")}
                   style={{

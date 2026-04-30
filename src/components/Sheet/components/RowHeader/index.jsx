@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { useSizeStore } from "../../stores/sizeStore";
-import { useSheetSelectionStore } from "../../stores/selectionStore";
+import { useSelectionStore } from "../../stores/selectionStore";
 import { useDataStore } from "../../stores/dataStore";
+import { useShallow } from "zustand/react/shallow";
 
 import classNames from "classnames/bind";
 import styles from "./row-header.module.scss";
@@ -10,6 +11,8 @@ const cx = classNames.bind(styles);
 
 const DEFAULT_HEIGHT = 22;
 const OVERSCAN_ROWS = 4;
+
+/* ================= COMPONENT ================= */
 
 export default function RowHeader({
   rows,
@@ -24,15 +27,19 @@ export default function RowHeader({
 
   const resizeRow = useSizeStore((s) => s.resizeRow);
 
-  const activeCell = useSheetSelectionStore((s) => s.activeCell);
-  const selectedRange = useSheetSelectionStore((s) => s.selectedRange);
+  const { activeCell, selectedRange } = useSelectionStore(
+    useShallow((s) => ({
+      activeCell: s.activeCell,
+      selectedRange: s.selectedRange,
+    })),
+  );
 
   /* ================= resize ================= */
 
   const startResizeRow = useCallback(
     (e, index) => {
       e.preventDefault();
-      e.stopPropagation(); // 🔥 tránh select row
+      e.stopPropagation();
 
       const startY = e.clientY;
       const startHeight = rowSizes[index] ?? DEFAULT_HEIGHT;
@@ -63,6 +70,17 @@ export default function RowHeader({
     [rowSizes, zoom, resizeRow, gridRef],
   );
 
+  /* ================= select row ================= */
+
+  const handleSelectRow = useCallback((rowIndex) => {
+    const selection = useSelectionStore.getState();
+    const cols = useDataStore.getState().cols;
+
+    selection.startSelection(rowIndex, 0);
+    selection.updateSelection(rowIndex, cols - 1);
+    selection.stopSelection();
+  }, []);
+
   /* ================= virtual ================= */
 
   let acc = 0;
@@ -77,6 +95,7 @@ export default function RowHeader({
   }
 
   const offsetY = acc - scrollTop;
+
   let visibleHeight = 0;
   let end = start;
 
@@ -100,23 +119,12 @@ export default function RowHeader({
         const i = start + idx;
         const baseHeight = rowSizes[i] || DEFAULT_HEIGHT;
 
-        /* ================= selection logic ================= */
+        /* ---------- selection ---------- */
 
-        const isActiveRow = activeCell && activeCell[0] === i;
+        const isActiveRow = activeCell?.[0] === i;
 
         const isSelectedRow =
           selectedRange && i >= selectedRange[0] && i <= selectedRange[2];
-
-        /* ================= select row ================= */
-
-        const handleSelectRow = () => {
-          const store = useSheetSelectionStore.getState();
-          const cols = useDataStore.getState().cols;
-
-          store.startSelection(i, 0);
-          store.updateSelection(i, cols - 1);
-          store.stopSelection();
-        };
 
         return (
           <div
@@ -129,11 +137,11 @@ export default function RowHeader({
               height: baseHeight * zoom,
               fontSize: 12 * zoom,
             }}
-            onMouseDown={handleSelectRow}
+            onMouseDown={() => handleSelectRow(i)}
           >
             <span>{labelFn(i)}</span>
 
-            {/* RESIZE HANDLE */}
+            {/* ===== RESIZE HANDLE ===== */}
             <div
               className={cx("resize")}
               onMouseDown={(e) => startResizeRow(e, i)}

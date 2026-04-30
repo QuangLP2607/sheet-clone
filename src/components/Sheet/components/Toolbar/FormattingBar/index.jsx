@@ -1,8 +1,9 @@
 import classNames from "classnames/bind";
 import styles from "./formatting-bar.module.scss";
 
-import { useSheetSelectionStore } from "../../../stores/selectionStore";
+import { useSelectionStore } from "../../../stores/selectionStore";
 import useCellFormatting from "../../../hooks/useCellFormatting";
+import { useShallow } from "zustand/react/shallow";
 
 import HistoryControls from "./groups/HistoryControls";
 import FontControls from "./groups/FontControls";
@@ -14,15 +15,29 @@ import BorderControls from "./groups/BorderControls";
 
 const cx = classNames.bind(styles);
 
+/* ================= COMPONENT ================= */
+
 export default function FormattingBar() {
-  const range = useSheetSelectionStore((s) => s.selectedRange);
+  /* ---------- selection ---------- */
+  const { selectedRange, activeCell } = useSelectionStore(
+    useShallow((s) => ({
+      selectedRange: s.selectedRange,
+      activeCell: s.activeCell,
+    })),
+  );
+
+  /* ---------- formatting ---------- */
   const formatting = useCellFormatting();
 
-  const disabled = !range;
+  /* ---------- state ---------- */
+  const hasSelection = !!(selectedRange || activeCell);
+  const disabled = !hasSelection;
 
+  /* ---------- render ---------- */
   return (
     <div className={cx("formatting-bar")}>
       <HistoryControls {...formatting} />
+
       <FontControls {...formatting} disabled={disabled} />
       <TextStyleControls {...formatting} disabled={disabled} />
       <AlignControls {...formatting} disabled={disabled} />

@@ -1,14 +1,19 @@
 import { useEffect } from "react";
+
 import { useDataStore } from "../stores/dataStore";
 import { useCellStyleStore } from "../stores/cellStyleStore";
 import { useSheetHistoryStore } from "../stores/historyStore";
-import { useSheetSelectionStore } from "../stores/selectionStore";
+import { useSelectionStore } from "../stores/selectionStore";
+import { useClipboardStore } from "../stores/clipboardStore";
+
+/* ================= KEYBOARD SHORTCUTS ================= */
 
 export default function useKeyboardShortcuts({ rows, cols }) {
   useEffect(() => {
     const onKeyDown = (e) => {
       const target = e.target;
 
+      /* ---------- ignore typing ---------- */
       const isTyping =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -21,8 +26,10 @@ export default function useKeyboardShortcuts({ rows, cols }) {
 
       const history = useSheetHistoryStore.getState();
 
+      /* ================= HELPERS ================= */
+
       const getRange = () => {
-        const sel = useSheetSelectionStore.getState();
+        const sel = useSelectionStore.getState();
 
         if (sel.selectedRange) return sel.selectedRange;
 
@@ -34,7 +41,17 @@ export default function useKeyboardShortcuts({ rows, cols }) {
         return null;
       };
 
+      const normalize = (range) => {
+        let [r1, c1, r2, c2] = range;
+
+        if (r1 > r2) [r1, r2] = [r2, r1];
+        if (c1 > c2) [c1, c2] = [c2, c1];
+
+        return [r1, c1, r2, c2];
+      };
+
       /* ================= UNDO / REDO ================= */
+
       if (ctrl && key === "z" && !e.shiftKey) {
         e.preventDefault();
         history.undo();
@@ -48,33 +65,29 @@ export default function useKeyboardShortcuts({ rows, cols }) {
       }
 
       /* ================= COPY / CUT ================= */
+
       if (ctrl && (key === "c" || key === "x")) {
         const range = getRange();
         if (!range) return;
 
         e.preventDefault();
 
+        const [r1, c1, r2, c2] = normalize(range);
+
         const dataStore = useDataStore.getState();
         const styleStore = useCellStyleStore.getState();
-
-        const [r1, c1, r2, c2] = range;
-
-        const sr = Math.min(r1, r2);
-        const er = Math.max(r1, r2);
-        const sc = Math.min(c1, c2);
-        const ec = Math.max(c1, c2);
 
         const values = [];
         const styles = [];
 
-        for (let r = sr; r <= er; r++) {
+        for (let r = r1; r <= r2; r++) {
           const vRow = [];
           const sRow = [];
 
-          for (let c = sc; c <= ec; c++) {
-            const k = `${r}:${c}`;
-            vRow.push(dataStore.cells[k] || "");
-            sRow.push(styleStore.styles[k] || null);
+          for (let c = c1; c <= c2; c++) {
+            const key = `${r}:${c}`;
+            vRow.push(dataStore.cells[key] || "");
+            sRow.push(styleStore.styles[key] || null);
           }
 
           values.push(vRow);
@@ -83,11 +96,12 @@ export default function useKeyboardShortcuts({ rows, cols }) {
 
         const text = values.map((r) => r.join("\t")).join("\n");
 
+        /* copy to system clipboard */
         navigator.clipboard?.writeText(text).catch(() => {});
 
-        // snapshot clipboard
-        useSheetSelectionStore.getState().setClipboard({
-          range: [sr, sc, er, ec],
+        /* save to internal clipboard */
+        useClipboardStore.getState().setClipboard({
+          range: [r1, c1, r2, c2],
           mode: key === "x" ? "cut" : "copy",
           data: { text, values, styles },
         });
@@ -96,52 +110,50 @@ export default function useKeyboardShortcuts({ rows, cols }) {
       }
 
       /* ================= PASTE ================= */
-      if (ctrl && key === "v") {
-        const selStore = useSheetSelectionStore.getState();
-        const clipboard = selStore.clipboard;
 
-        const start = selStore.activeCell || selStore.selectionStart;
+      if (ctrl && key === "v") {
+        const sel = useSelectionStore.getState();
+        const clipboard = useClipboardStore.getState().clipboard;
+
+        const start = sel.activeCell || sel.selectionStart;
         if (!start) return;
 
         e.preventDefault();
 
-        const historyStore = useSheetHistoryStore.getState();
         const [sr, sc] = start;
 
+        const historyStore = useSheetHistoryStore.getState();
         historyStore.pushSnapshot();
 
         navigator.clipboard.readText().then((text) => {
           const rowsText = text?.split("\n").filter(Boolean) || [];
           const matrix = rowsText.map((r) => r.split("\t"));
 
+          /* ===== APPLY VALUES ===== */
           useDataStore.setState((state) => {
             const next = { ...state.cells };
 
-            // ================= PASTE =================
             for (let r = 0; r < matrix.length; r++) {
               for (let c = 0; c < matrix[r].length; c++) {
                 next[`${sr + r}:${sc + c}`] = matrix[r][c];
               }
             }
 
-            // ================= CUT DELETE (FIXED) =================
+            /* ===== CUT CLEANUP ===== */
             if (clipboard?.mode === "cut" && clipboard.range) {
               const [r1, c1, r2, c2] = clipboard.range;
 
               for (let r = r1; r <= r2; r++) {
                 for (let c = c1; c <= c2; c++) {
-                  const key = `${r}:${c}`;
-                  if (next[key] !== undefined) {
-                    delete next[key];
-                  }
+                  delete next[`${r}:${c}`];
                 }
               }
             }
 
-            return { cells: { ...next } };
+            return { cells: next };
           });
 
-          // ================= STYLE DELETE =================
+          /* ===== APPLY STYLE CLEANUP (CUT) ===== */
           if (clipboard?.mode === "cut" && clipboard.range) {
             const [r1, c1, r2, c2] = clipboard.range;
 
@@ -154,13 +166,17 @@ export default function useKeyboardShortcuts({ rows, cols }) {
                 }
               }
 
-              return { styles: { ...next } };
+              return { styles: next };
             });
           }
 
-          // ================= CLEAR CLIPBOARD =================
-          useSheetSelectionStore.getState().clearClipboard();
+          /* ===== CLEAR INTERNAL CLIPBOARD ===== */
+          if (clipboard?.mode === "cut") {
+            useClipboardStore.getState().clearClipboard();
+          }
         });
+
+        return;
       }
     };
 

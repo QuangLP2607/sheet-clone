@@ -1,8 +1,10 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import ToolGroup from "../../base/ToolGroup";
 import ToolCombobox from "../../base/ToolCombobox";
+
 import { useCellStyleStore } from "../../../../../stores/cellStyleStore";
-import { useSheetSelectionStore } from "../../../../../stores/selectionStore";
+import { useSelectionStore } from "../../../../../stores/selectionStore";
+import { useShallow } from "zustand/react/shallow";
 
 import { Icon } from "@iconify/react";
 
@@ -10,6 +12,8 @@ import styles from "./font-controls.module.scss";
 import classNames from "classnames/bind";
 
 const cx = classNames.bind(styles);
+
+/* ================= OPTIONS ================= */
 
 const FONT_OPTIONS = [
   { label: "Inter", value: "Inter, Arial, sans-serif" },
@@ -24,6 +28,8 @@ const FONT_SIZE_OPTIONS = [12, 14, 16, 18, 20, 24, 28].map((s) => ({
   value: s,
 }));
 
+/* ================= UTILS ================= */
+
 function parseFontSize(input) {
   const cleaned = input.trim();
   if (!/^\d+$/.test(cleaned)) return null;
@@ -35,32 +41,42 @@ function clampFontSize(n) {
   return Math.min(200, Math.max(6, n));
 }
 
+/* ================= COMPONENT ================= */
+
 export default memo(function FontControls({
   disabled,
   setFontFamily,
   setFontSize,
 }) {
-  const range = useSheetSelectionStore((s) => s.selectedRange);
-  const activeCell = useSheetSelectionStore((s) => s.activeCell);
+  /* ---------- selection ---------- */
+  const { selectedRange, activeCell } = useSelectionStore(
+    useShallow((s) => ({
+      selectedRange: s.selectedRange,
+      activeCell: s.activeCell,
+    })),
+  );
 
-  const style = useCellStyleStore((state) => {
-    let row, col;
+  /* ---------- anchor cell ---------- */
+  const anchor = selectedRange
+    ? [selectedRange[0], selectedRange[1]]
+    : activeCell;
 
-    if (range) {
-      [row, col] = range;
-    } else if (activeCell) {
-      [row, col] = activeCell;
-    } else {
-      return null;
-    }
+  /* ---------- style ---------- */
+  const style = useCellStyleStore(
+    useCallback(
+      (state) => {
+        if (!anchor) return null;
+        return state.styles[`${anchor[0]}:${anchor[1]}`] || null;
+      },
+      [anchor],
+    ),
+  );
 
-    return state.styles[`${row}:${col}`] || null;
-  });
-
+  /* ---------- derived ---------- */
   const fontFamily = style?.fontFamily ?? FONT_OPTIONS[0].value;
   const fontSize = style?.fontSize ?? 16;
 
-  // ===== handlers =====
+  /* ---------- handlers ---------- */
   const handleDecrease = useCallback(() => {
     setFontSize(clampFontSize(fontSize - 1));
   }, [fontSize, setFontSize]);
@@ -77,9 +93,10 @@ export default memo(function FontControls({
     [setFontSize],
   );
 
+  /* ---------- render ---------- */
   return (
     <ToolGroup>
-      {/* FONT FAMILY */}
+      {/* ===== FONT FAMILY ===== */}
       <ToolCombobox
         value={fontFamily}
         options={FONT_OPTIONS}
@@ -90,11 +107,11 @@ export default memo(function FontControls({
         clearOnFocus
       />
 
-      {/* FONT SIZE + - */}
+      {/* ===== FONT SIZE ===== */}
       <div className={cx("font-size-group")}>
         <button
           className={cx("font-size-button")}
-          onMouseDown={(e) => e.preventDefault()} // giữ focus cell
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleDecrease}
           disabled={disabled}
         >

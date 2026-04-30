@@ -1,24 +1,58 @@
 import { useCellStyleStore } from "../stores/cellStyleStore";
-import { useSheetSelectionStore } from "../stores/selectionStore";
+import { useSelectionStore } from "../stores/selectionStore";
 import { useSheetHistoryStore } from "../stores/historyStore";
 import { useCallback, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
+
+/* ================= HOOK ================= */
 
 export default function useCellFormatting() {
+  /* ---------- selection ---------- */
+  const { selectedRange, activeCell } = useSelectionStore(
+    useShallow((s) => ({
+      selectedRange: s.selectedRange,
+      activeCell: s.activeCell,
+    })),
+  );
+
+  /* ---------- history ---------- */
+  const { pushSnapshot, undo, redo, canUndo, canRedo } = useSheetHistoryStore(
+    useShallow((s) => ({
+      pushSnapshot: s.pushSnapshot,
+      undo: s.undo,
+      redo: s.redo,
+      canUndo: s.past.length > 0,
+      canRedo: s.future.length > 0,
+    })),
+  );
+
+  /* ---------- style store ---------- */
   const setRangeStyle = useCellStyleStore((s) => s.setRangeStyle);
   const clearRangeStyle = useCellStyleStore((s) => s.clearRangeStyle);
-  const styles = useCellStyleStore((s) => s.styles);
-  const pushSnapshot = useSheetHistoryStore((s) => s.pushSnapshot);
-  const undo = useSheetHistoryStore((s) => s.undo);
-  const redo = useSheetHistoryStore((s) => s.redo);
-  const canUndo = useSheetHistoryStore((s) => s.past.length > 0);
-  const canRedo = useSheetHistoryStore((s) => s.future.length > 0);
-  const range = useSheetSelectionStore((s) => s.selectedRange);
 
-  const selectedStyle = useMemo(() => {
-    if (!range) return null;
-    const [row, col] = range;
-    return styles[`${row}:${col}`] || null;
-  }, [range, styles]);
+  /* ================= RANGE RESOLVE ================= */
+
+  const range = selectedRange
+    ? selectedRange
+    : activeCell
+      ? [...activeCell, ...activeCell]
+      : null;
+
+  /* ================= ANCHOR CELL ================= */
+
+  const anchor = range ? [range[0], range[1]] : null;
+
+  const selectedStyle = useCellStyleStore(
+    useCallback(
+      (state) => {
+        if (!anchor) return null;
+        return state.styles[`${anchor[0]}:${anchor[1]}`] || null;
+      },
+      [anchor],
+    ),
+  );
+
+  /* ================= APPLY ================= */
 
   const applyStyle = useCallback(
     (style) => {
@@ -29,64 +63,55 @@ export default function useCellFormatting() {
     [range, setRangeStyle, pushSnapshot],
   );
 
+  /* ================= ACTIONS ================= */
+
   const setBackground = useCallback(
-    (color) => {
-      applyStyle({ bg: color });
-    },
+    (color) => applyStyle({ bg: color }),
     [applyStyle],
   );
 
-  const toggleBold = useCallback(() => {
-    applyStyle({ bold: !selectedStyle?.bold });
-  }, [applyStyle, selectedStyle]);
+  const toggleBold = useCallback(
+    () => applyStyle({ bold: !selectedStyle?.bold }),
+    [applyStyle, selectedStyle],
+  );
 
-  const toggleItalic = useCallback(() => {
-    applyStyle({ italic: !selectedStyle?.italic });
-  }, [applyStyle, selectedStyle]);
+  const toggleItalic = useCallback(
+    () => applyStyle({ italic: !selectedStyle?.italic }),
+    [applyStyle, selectedStyle],
+  );
 
-  const toggleUnderline = useCallback(() => {
-    applyStyle({ underline: !selectedStyle?.underline });
-  }, [applyStyle, selectedStyle]);
+  const toggleUnderline = useCallback(
+    () => applyStyle({ underline: !selectedStyle?.underline }),
+    [applyStyle, selectedStyle],
+  );
 
   const setTextAlign = useCallback(
-    (align) => {
-      applyStyle({ align });
-    },
-    [applyStyle],
-  );
-
-  const setTextColor = useCallback(
-    (color) => {
-      applyStyle({ color });
-    },
-    [applyStyle],
-  );
-
-  const setFontSize = useCallback(
-    (fontSize) => {
-      applyStyle({ fontSize });
-    },
-    [applyStyle],
-  );
-
-  const setFontFamily = useCallback(
-    (fontFamily) => {
-      applyStyle({ fontFamily });
-    },
+    (align) => applyStyle({ align }),
     [applyStyle],
   );
 
   const setVerticalAlign = useCallback(
-    (verticalAlign) => {
-      applyStyle({ verticalAlign });
-    },
+    (verticalAlign) => applyStyle({ verticalAlign }),
     [applyStyle],
   );
 
   const setBorderPreset = useCallback(
-    (borderPreset) => {
-      applyStyle({ borderPreset });
-    },
+    (borderPreset) => applyStyle({ borderPreset }),
+    [applyStyle],
+  );
+
+  const setTextColor = useCallback(
+    (color) => applyStyle({ color }),
+    [applyStyle],
+  );
+
+  const setFontSize = useCallback(
+    (fontSize) => applyStyle({ fontSize }),
+    [applyStyle],
+  );
+
+  const setFontFamily = useCallback(
+    (fontFamily) => applyStyle({ fontFamily }),
     [applyStyle],
   );
 
@@ -96,19 +121,26 @@ export default function useCellFormatting() {
     clearRangeStyle(range);
   }, [range, clearRangeStyle, pushSnapshot]);
 
+  /* ================= RETURN ================= */
+
   return {
     selectedStyle,
+
     setBackground,
     toggleBold,
     toggleItalic,
     toggleUnderline,
+
     setTextAlign,
     setVerticalAlign,
     setBorderPreset,
+
     setFontSize,
     setFontFamily,
     setTextColor,
+
     clearFormatting,
+
     undo,
     redo,
     canUndo,
